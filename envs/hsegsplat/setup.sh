@@ -49,8 +49,19 @@ pip install torch==2.4.0 torchvision==0.19.0 \
 # Apply the numpy patch that the Colab cell did (loosen the exact pin).
 sed -i.bak 's/numpy==1.24.4/numpy>=1.24.4,<2.0/' "$REPO_ROOT/depthsplat/requirements.txt" || true
 
-# DepthSplat's requirements. The git URL for diff-gaussian-rasterization-modified
-# needs CUDA at build time — keep that in mind if it fails on Colab.
+# DepthSplat's requirements include diff-gaussian-rasterization-modified, which is a
+# CUDA extension built from source. It needs CUDA_HOME set. Mirrors the SAM setup.
+if [[ -z "${CUDA_HOME:-}" ]]; then
+    if [[ -d /usr/local/cuda ]]; then
+        export CUDA_HOME=/usr/local/cuda
+    elif command -v nvcc &> /dev/null; then
+        export CUDA_HOME="$(dirname "$(dirname "$(command -v nvcc)")")"
+    else
+        echo "[envs/hsegsplat] ERROR: no CUDA toolkit found (CUDA_HOME unset, nvcc not in PATH)."
+        exit 1
+    fi
+    echo "[envs/hsegsplat] auto-set CUDA_HOME=$CUDA_HOME"
+fi
 pip install -r "$REPO_ROOT/depthsplat/requirements.txt"
 
 # H-SegSplat's own deps on top of DepthSplat: gsplat (rasterizer) + imageio (PNG writing).
