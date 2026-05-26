@@ -73,7 +73,10 @@ fi
 pip install --no-build-isolation -v -r "$REPO_ROOT/depthsplat/requirements.txt"
 
 # H-SegSplat's own deps on top of DepthSplat: gsplat (rasterizer) + imageio (PNG writing).
-pip install gsplat imageio
+# matplotlib_inline: not used by us, but Colab exports MPLBACKEND=module://matplotlib_inline...
+# which causes matplotlib to crash if the backend module isn't importable. Installing it
+# makes the venv robust to that env-var leak.
+pip install gsplat imageio matplotlib_inline
 
 # Add the vendored depthsplat dir to a .pth file so `from src.X import Y` works
 # inside our scripts without us having to cd into depthsplat/.
@@ -81,6 +84,10 @@ SITE_PACKAGES="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purel
 echo "$REPO_ROOT/depthsplat" > "$SITE_PACKAGES/depthsplat.pth"
 
 echo "[envs/hsegsplat] verification:"
+# Unset Colab's MPLBACKEND for the duration of the verification — it points at a module
+# that isn't installed by default. matplotlib_inline (installed above) handles the
+# pipeline case; this just keeps the smoke test clean.
+unset MPLBACKEND
 python -c "import torch; print(f'  Torch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 python -c "import gsplat; print(f'  gsplat OK')"
 python -c "import sys; sys.path.insert(0, '$REPO_ROOT/depthsplat'); import src.model.encoder.encoder_depthsplat as _; print('  depthsplat import OK')"
