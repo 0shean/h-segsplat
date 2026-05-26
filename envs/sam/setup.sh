@@ -74,4 +74,9 @@ cd "$REPO_ROOT/Semantic-SAM/semantic_sam/body/encoder/ops"
 # Lightweight runtime deps used by our scripts.
 pip install opencv-python tqdm pillow
 
+# Sentinel file written only on success — the notebook checks for this to decide
+# whether to skip a re-run. Without it, a half-finished venv directory looks
+# "done" when it isn't.
+touch "$VENV/.setup_complete"
+
 echo "[envs/sam] done. activate with: source $VENV/bin/activate"

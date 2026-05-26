@@ -66,4 +66,5 @@ python -c "import torch; print(f'  Torch: {torch.__version__}, CUDA: {torch.cuda
 python -c "import gsplat; print(f'  gsplat OK')"
 python -c "import sys; sys.path.insert(0, '$REPO_ROOT/depthsplat'); import src.model.encoder.encoder_depthsplat as _; print('  depthsplat import OK')"
 
+touch "$VENV/.setup_complete"
 echo "[envs/hsegsplat] done. activate with: source $VENV/bin/activate"

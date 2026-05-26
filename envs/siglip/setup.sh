@@ -48,4 +48,5 @@ echo "[envs/siglip] verification:"
 "$PYTHON" -c "import torch; print(f'  Torch: {torch.__version__}, CUDA available: {torch.cuda.is_available()}')"
 "$PYTHON" -c "import open_clip; print('  open_clip OK')"
 
+touch "$VENV/.setup_complete"
 echo "[envs/siglip] done. activate with: source $VENV/bin/activate"
