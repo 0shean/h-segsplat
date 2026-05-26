@@ -170,7 +170,10 @@ def load_level_assets(level_dir: Path, device: torch.device):
 # Hydra entry
 # ----------------------------------------------------------------------------
 
-@hydra.main(version_base=None, config_path="config", config_name="main")
+# Hydra resolves config_path relative to this file's directory. The configs
+# live in the vendored depthsplat tree at <repo>/depthsplat/config, so we
+# point one level up and over.
+@hydra.main(version_base=None, config_path="../depthsplat/config", config_name="main")
 def run(cfg_dict: DictConfig):
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)
