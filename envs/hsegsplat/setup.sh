@@ -72,11 +72,14 @@ fi
 # -v: surface the real error if one occurs, instead of "No available output".
 pip install --no-build-isolation -v -r "$REPO_ROOT/depthsplat/requirements.txt"
 
-# H-SegSplat's own deps on top of DepthSplat: gsplat (rasterizer) + imageio (PNG writing).
-# matplotlib_inline: not used by us, but Colab exports MPLBACKEND=module://matplotlib_inline...
-# which causes matplotlib to crash if the backend module isn't importable. Installing it
-# makes the venv robust to that env-var leak.
-pip install gsplat imageio matplotlib_inline
+# H-SegSplat's own deps on top of DepthSplat:
+#  - gsplat:      our rasterizer
+#  - imageio:     PNG writing for novel-view renders
+#  - scikit-learn: KMeans for building per-level banks (used by build_hsegsplat_inputs.py)
+#  - matplotlib_inline: not used by us, but Colab exports
+#    MPLBACKEND=module://matplotlib_inline.backend_inline which crashes matplotlib if
+#    the backend module isn't importable. Installing makes the venv robust to that leak.
+pip install gsplat imageio scikit-learn matplotlib_inline
 
 # Add the vendored depthsplat dir to a .pth file so `from src.X import Y` works
 # inside our scripts without us having to cd into depthsplat/.
