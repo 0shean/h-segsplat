@@ -1,0 +1,53 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+
+# --- Venvs ---
+envs/*/venv/
+viewer/server/venv/
+
+# --- Data and outputs ---
+data/*
+!data/.gitkeep
+outputs/
+*.npy
+*.pt
+*.pth
+*.zip
+# Allow exception: vendored upstream READMEs etc. don't need this; .pth files in venvs are caught above.
+
+# --- Checkpoints (always too big for git) ---
+swinl_only_sam_many2many.pth
+depthsplat/pretrained/
+
+# --- Unity ---
+viewer/unity_project/
+# (Recreate per docs/progress_12_05.md §13. The unity_scripts/ folder is the canonical source.)
+
+# --- SemanticSAM build artifacts (recreated by envs/sam/setup.sh) ---
+Semantic-SAM/Semantic_SAM.egg-info/
+Semantic-SAM/semantic_sam/body/encoder/ops/build/
+Semantic-SAM/semantic_sam/body/encoder/ops/*.so
+Semantic-SAM/semantic_sam/body/encoder/ops/MultiScaleDeformableAttention*
+
+# --- macOS ---
+.DS_Store
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Colab cache that may sneak in if you run locally ---
+.ipynb_checkpoints/

@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic
+torch
+open_clip_torch
+transformers
+sentencepiece
+numpy
