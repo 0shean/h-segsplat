@@ -68,6 +68,21 @@ pip install -e .
 pip install tyro==0.9.35
 
 # Compile the MultiScaleDeformableAttention CUDA op in-place.
+# SemanticSAM's setup.py requires CUDA_HOME — set it if the env doesn't have one.
+# Euler's `module load cuda/...` already exports it; Colab does not.
+if [[ -z "${CUDA_HOME:-}" ]]; then
+    if [[ -d /usr/local/cuda ]]; then
+        export CUDA_HOME=/usr/local/cuda
+    elif command -v nvcc &> /dev/null; then
+        # Derive from nvcc location: /<prefix>/bin/nvcc -> /<prefix>
+        export CUDA_HOME="$(dirname "$(dirname "$(command -v nvcc)")")"
+    else
+        echo "[envs/sam] ERROR: no CUDA toolkit found. CUDA_HOME unset and nvcc not in PATH."
+        echo "[envs/sam]        Install CUDA 12.x and re-run, or set CUDA_HOME=<path> manually."
+        exit 1
+    fi
+    echo "[envs/sam] auto-set CUDA_HOME=$CUDA_HOME"
+fi
 cd "$REPO_ROOT/Semantic-SAM/semantic_sam/body/encoder/ops"
 "$PYTHON" setup.py build install
 
