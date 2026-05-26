@@ -363,22 +363,46 @@ All gather operations are vectorized numpy; no Python per-Gaussian loop.
 - **Instance disambiguation** — multiple chair instances still aren't separable. The level-1 chair mask containing a leg's level-3 ancestor doesn't carry instance identity. If you want "leg of *the chair on the left*," you need a different system (multi-view instance matching + per-instance IDs). Out of scope for v2.
 - **Cross-view containment** — parent dict is per-view. A level-6 mask in view 0 with no level-3 parent in view 0 cannot inherit a level-3 parent from view 1, even if the same physical part is segmented at level 3 in the other view. Acceptable for v2.
 
-### 6.6 Future work: bbox-expansion + multi-scale crops for SigLIP context (Search3D §III-B trick)
+### 6.6 Search3D §III-B bbox expansion for SigLIP context — **implemented**
 
-Search3D (Takmaz et al. 2025) reports that expanding the tight 2D bbox around a mask before SigLIP encoding gives better features for small parts. They do it two different ways at two different stages:
+Search3D (Takmaz et al. 2025) reports that expanding the tight 2D bbox around a mask before SigLIP encoding gives better features for small parts. The paper splits the trick across two stages:
 
-- **Object-level (their step 4):** **multi-scale cropping** — 3 nested crops at expansion ratios `k_exp = 0.2` per step, all encoded and average-pooled per view.
-- **Part-level (their step 5):** **single 10% expansion** (`k_exp = 0.1`) around the tight bbox. One crop per part-mask.
+- **Object-level (their step 4):** multi-scale cropping — 3 nested crops at expansion ratios `k_exp = 0.2` per step, all encoded and average-pooled per view.
+- **Part-level (their step 5):** single 10% expansion (`k_exp = 0.1`) around the tight bbox. One crop per part-mask.
 
-Our current `run_siglip2.py` does something *different* — two crops per mask: (a) tight bbox with non-mask pixels zeroed, (b) tight bbox with background kept. Same bbox both times, no expansion. The two-crop average is meant to give SigLIP some context (option b) while still being focused on the mask (option a).
+#### What we implement (`scripts/run_siglip.py`)
 
-**Concrete future change:** add bbox expansion. Cheapest version: switch our part-level (level 6) feature extraction to a single 10%-expanded bbox crop. Richer version: do 3-scale multi-scale crops at every level. Either way is a one-screen edit to `run_siglip2.py` + a re-run of features.
+Per-level encoding strategy:
 
-Expected payoff: better level-6 (fine-part) feature quality. Level 6 is currently our weakest layer (only ~24% of pixels have any level-6 mask, and those masks are smallest, so SigLIP context starvation matters most here).
+| Level | Strategy | Crops per mask | Rationale |
+|---|---|---|---|
+| 1 | original two-crop average (mask-zeroed + bbox-with-bg) | 2 | whole-object masks already include plenty of context |
+| 3 | single 10% expanded bbox, background kept | 1 | mid-grain masks benefit from a bit of surrounding context |
+| 6 | single 10% expanded bbox, background kept | 1 | Search3D's part-level recipe — the level where it matters most |
 
-Cost: 1× (single expansion) or 3× (multi-scale) the SigLIP forward passes at preprocess time. K-means and downstream stay the same.
+The expansion is configured via `MaskCropEncoder.DEFAULT_EXPANSION = {1: 0.0, 3: 0.1, 6: 0.1}` and threaded through `embed_all(..., level=L)`.
 
-Don't pre-implement. Try it when level-6 query quality becomes a bottleneck for the demo, or as an ablation in evaluation.
+We extend Search3D's part-only recommendation by also expanding level 3. Defensible because level 3 masks are mid-grain; whether it helps in practice is an empirical question for the eval phase.
+
+#### Critical invariant — expansion is SigLIP-input only
+
+The expanded bbox exists for ~50 ms during stage 2's forward pass, then is discarded. **Nothing downstream knows or cares.** Specifically unaffected:
+
+- `mask_*.png` files on disk (SAM output is unchanged)
+- per-pixel mask_id_maps, full-res containment computation
+- the per-Gaussian finest-mask reference (`finest_local_mask_id`, `finest_global_mask_id`)
+- `parents.json` (computed on the original binary masks)
+- the 1-to-1 DepthSplat pixel↔Gaussian mapping
+
+The only quantity affected is **the SigLIP feature** of each mask, which feeds K-means → banks → per-mask LERF scores at query time.
+
+#### Cost
+
+1× the SigLIP forward passes at levels 3 and 6 (instead of 2× from the dropped two-crop average), so actually *slightly faster* at preprocess time. Level 1 keeps the two-crop method.
+
+#### Future variant (not implemented)
+
+Search3D's full object-level recipe: 3 nested crops at `k_exp = 0.2` averaged. Costs 3× the forward passes per mask. Try as an ablation if eval shows the single-expansion isn't enough.
 
 ---
 
@@ -548,7 +572,7 @@ This section is the contract for the v2 upgrade. §6.5 describes the design; thi
 
 1. Replace per-Gaussian three-cluster payload with per-mask reference + parent dict (§6.5.1–6.5.3).
 2. Implement Scheme B query semantics with fluid level binding by query shape (§6.5.4–6.5.5).
-3. Adopt Search3D §III-B bbox expansion at level 6 only (cheapest version, 10% single expansion). This is a cluster-side edit to `run_siglip2.py` — outside this repo but documented here.
+3. Adopt Search3D §III-B bbox expansion at levels 3 and 6 (10% single expansion, see §6.6).
 
 v2 ships as a **side-by-side `/query_combined_v2` endpoint** — v1 stays alive for direct comparison.
 
@@ -561,7 +585,7 @@ v2 ships as a **side-by-side `/query_combined_v2` endpoint** — v1 stays alive 
 | `second_stage/scripts/colab_hsegsplat_inference.py` | Add `finest_level[G]` + `finest_local_mask_id[G]` to `gaussians.pt`. Pack `mask_features`, `mask_directory`, `parents` into `gaussians.pt` so the viewer is one-file. |
 | `second_stage/viewer/server/serve.py` | Add `/query_combined_v2` implementing fluid-binding evaluator. Keep `/query_combined` untouched. |
 | `second_stage/viewer/unity_scripts/HSegSplatClient.cs` | Inspector checkbox **Use v2 (per-mask)** switching endpoint. |
-| *(cluster-side, not in repo)* `run_siglip2.py` | Switch level-6 SigLIP extraction to single 10%-expanded bbox crop, no zeroing. |
+| `scripts/run_siglip.py` | Per-level crop strategy: level 1 keeps two-crop, levels 3+6 use single 10%-expanded bbox (Search3D §III-B). See §6.6. |
 
 ### 12.3 Order of operations
 
@@ -571,7 +595,7 @@ v2 ships as a **side-by-side `/query_combined_v2` endpoint** — v1 stays alive 
 4. Add v2 endpoint to server. Hot-reload — same `gaussians.pt`.
 5. Add Unity v2 toggle.
 6. Compare v1 vs v2 highlights on the existing queries ("chair", "glass pane of window", "door of cupboard of cupboard"). Eyeball whether silhouette regions look more complete.
-7. (Cluster-side) re-run SigLIP for level 6 with bbox expansion. Re-run the whole pipeline. Compare to v2-without-expansion.
+7. Search3D bbox expansion (§6.6) now built into `scripts/run_siglip.py`. Re-run stage 2 onward to apply.
 
 ### 12.4 What v2 unlocks vs v1
 
