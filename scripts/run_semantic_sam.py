@@ -50,8 +50,10 @@ def parse_args():
                         "Defaults to <repo_root>/Semantic-SAM where <repo_root> is the parent of scripts/.")
     p.add_argument("--levels", type=int, nargs="+", default=[1, 3, 6],
                    help="Granularity levels to extract (default 1 3 6).")
-    p.add_argument("--target_w", type=int, default=960)
-    p.add_argument("--target_h", type=int, default=640)
+    p.add_argument("--target_w", type=int,
+                   default=int(os.environ.get("HSEGSPLAT_TARGET_W", "960")))
+    p.add_argument("--target_h", type=int,
+                   default=int(os.environ.get("HSEGSPLAT_TARGET_H", "640")))
     p.add_argument("--points_per_side", type=int, default=32)
     p.add_argument("--pred_iou_thresh", type=float, default=0.88)
     p.add_argument("--stability_score_thresh", type=float, default=0.92)

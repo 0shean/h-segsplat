@@ -447,6 +447,58 @@ def run(cfg_dict: DictConfig):
             np.save(out_dir / f"rendered_feature_map_lvl{lvl}.npy", feat_arr.astype(np.float32))
             print(f"[hsegsplat] rendered_feature_map_lvl{lvl}.npy: {feat_arr.shape}")
 
+        # --- Optional: render at additional TARGET views from target_views.json ---
+        # 3D-OVS eval needs renders at the 5 labeled GT views (which are NOT the
+        # context views). If <scene>/target_views.json exists, render there too.
+        target_views_path = Path(cfg_dict.segsplat.assets_dir) / "target_views.json"
+        if target_views_path.exists():
+            print(f"[hsegsplat] target_views.json found, rendering target views ...")
+            with open(target_views_path) as f:
+                tv = json.load(f)
+            t_W, t_H = int(tv["w"]), int(tv["h"])
+            assert (t_H, t_W) == (H, W), \
+                f"target_views resolution {t_W}x{t_H} != context {W}x{H}"
+            t_fx, t_fy = float(tv["fl_x"]), float(tv["fl_y"])
+            t_cx, t_cy = float(tv["cx"]), float(tv["cy"])
+            # Build per-target K (same K for all in 3D-OVS).
+            t_K = torch.tensor([[t_fx, 0.0, t_cx],
+                                [0.0, t_fy, t_cy],
+                                [0.0, 0.0, 1.0]], dtype=torch.float32, device=device)
+            # diag(1,-1,-1,1) flips Blender -> OpenCV (and is self-inverse).
+            blender2opencv = torch.diag(torch.tensor([1.0, -1.0, -1.0, 1.0],
+                                                     dtype=torch.float32, device=device))
+            t_rgb = []
+            t_feat = {lvl: [] for lvl in levels}
+            for tgt in tv["targets"]:
+                c2w_blender = torch.tensor(tgt["transform_matrix"],
+                                            dtype=torch.float32, device=device)
+                c2w_opencv = c2w_blender @ blender2opencv
+                viewmat = torch.linalg.inv(c2w_opencv).unsqueeze(0)  # (1, 4, 4)
+                rgb_t, _, _ = rasterization(
+                    means=means, quats=quats_wxyz, scales=scales, opacities=opacities,
+                    colors=sh_coeffs, viewmats=viewmat, Ks=t_K.unsqueeze(0),
+                    width=W, height=H, sh_degree=sh_degree, render_mode="RGB",
+                )
+                t_rgb.append(rgb_t[0].clamp(0, 1).cpu())
+                for lvl in levels:
+                    feat_t, _, _ = rasterization(
+                        means=means, quats=quats_wxyz, scales=scales, opacities=opacities,
+                        colors=one_hots[lvl], viewmats=viewmat, Ks=t_K.unsqueeze(0),
+                        width=W, height=H, sh_degree=None, render_mode="RGB",
+                    )
+                    t_feat[lvl].append(feat_t[0].cpu())
+            t_rgb_arr = torch.stack(t_rgb, 0).numpy()  # (T, H, W, 3)
+            np.save(out_dir / "rendered_rgb_targets.npy", t_rgb_arr.astype(np.float32))
+            for t_idx, tgt in enumerate(tv["targets"]):
+                imageio.imwrite(out_dir / f"render_target_{tgt['view_id']}.png",
+                                (t_rgb_arr[t_idx] * 255).clip(0, 255).astype(np.uint8))
+            for lvl in levels:
+                t_feat_arr = torch.stack(t_feat[lvl], 0).numpy()
+                np.save(out_dir / f"rendered_feature_map_targets_lvl{lvl}.npy",
+                        t_feat_arr.astype(np.float32))
+                print(f"[hsegsplat] rendered_feature_map_targets_lvl{lvl}.npy: {t_feat_arr.shape}")
+            print(f"[hsegsplat] rendered {len(tv['targets'])} target views")
+
         # gaussians.pt: one geometry copy + per-level cluster_index/bank + v2 payload.
         payload = {
             "means": means.cpu(),

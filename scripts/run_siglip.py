@@ -17,6 +17,7 @@ Idempotent: skips frame dirs that already have siglip_embeddings.npy.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -41,8 +42,10 @@ def parse_args():
     p.add_argument("--scene", type=str, default=None,
                    help="Single scene to process. If omitted, all subdirs of data_dir are processed.")
     p.add_argument("--levels", type=int, nargs="+", default=[1, 3, 6])
-    p.add_argument("--target_w", type=int, default=960)
-    p.add_argument("--target_h", type=int, default=640)
+    p.add_argument("--target_w", type=int,
+                   default=int(os.environ.get("HSEGSPLAT_TARGET_W", "960")))
+    p.add_argument("--target_h", type=int,
+                   default=int(os.environ.get("HSEGSPLAT_TARGET_H", "640")))
     p.add_argument("--model", type=str, default="ViT-SO400M-14-SigLIP")
     p.add_argument("--pretrained", type=str, default="webli")
     return p.parse_args()

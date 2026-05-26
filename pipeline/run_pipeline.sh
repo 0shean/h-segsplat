@@ -62,6 +62,50 @@ echo "[pipeline] scene dir  : $SCENE_DIR"
 echo "[pipeline] scene name : $SCENE_NAME"
 
 # ------------------------------------------------------------
+# Per-stage timing CSVs:
+#   $SCENE_DIR/pipeline_timings.csv      (per scene, fresh each run)
+#   $REPO_ROOT/data/pipeline_timings.csv (aggregate, appended across runs)
+# ------------------------------------------------------------
+SCENE_TIMINGS="$SCENE_DIR/pipeline_timings.csv"
+AGG_TIMINGS="$REPO_ROOT/data/pipeline_timings.csv"
+CSV_HEADER="scene,stage,start_iso,end_iso,duration_seconds,status"
+echo "$CSV_HEADER" > "$SCENE_TIMINGS"
+if [[ ! -f "$AGG_TIMINGS" ]]; then
+    echo "$CSV_HEADER" > "$AGG_TIMINGS"
+fi
+
+# Run a stage and record its wallclock time + exit status to the CSVs.
+# Usage: run_stage <stage_label> <command...>
+run_stage() {
+    local label="$1"; shift
+    local start_iso start_ns end_iso end_ns dur status
+    start_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    start_ns=$(date +%s%N)
+    set +e
+    "$@"
+    status=$?
+    set -e
+    end_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    end_ns=$(date +%s%N)
+    # bash arithmetic on big ints
+    dur=$(awk -v s="$start_ns" -v e="$end_ns" 'BEGIN{printf "%.3f", (e - s) / 1e9}')
+    local result="ok"
+    [[ $status -ne 0 ]] && result="failed"
+    local row="${SCENE_NAME},${label},${start_iso},${end_iso},${dur},${result}"
+    echo "$row" >> "$SCENE_TIMINGS"
+    echo "$row" >> "$AGG_TIMINGS"
+    echo "[pipeline] [$label] $result in ${dur}s"
+    if [[ $status -ne 0 ]]; then
+        echo "[pipeline] ABORT: stage '$label' failed (exit $status). See $SCENE_TIMINGS"
+        exit $status
+    fi
+}
+
+# Mark overall start time so we can also log a TOTAL row.
+PIPELINE_START_NS=$(date +%s%N)
+PIPELINE_START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# ------------------------------------------------------------
 # Stage 1: SAM
 # ------------------------------------------------------------
 echo ""
@@ -74,7 +118,8 @@ if [[ ! -f "$SAM_CHECKPOINT" ]]; then
     echo "[pipeline]        or set SAM_CHECKPOINT=<path>."
     exit 1
 fi
-bash "$REPO_ROOT/pipeline/stage_01_masks.sh" \
+run_stage stage1_sam \
+    bash "$REPO_ROOT/pipeline/stage_01_masks.sh" \
     "$SCENE_DIR" "$SCENE_NAME" "$SAM_CHECKPOINT" "$REPO_ROOT"
 
 # ------------------------------------------------------------
@@ -84,7 +129,8 @@ echo ""
 echo "============================================================"
 echo "[pipeline] Stage 2: SigLIP features"
 echo "============================================================"
-bash "$REPO_ROOT/pipeline/stage_02_features.sh" \
+run_stage stage2_siglip \
+    bash "$REPO_ROOT/pipeline/stage_02_features.sh" \
     "$SCENE_DIR" "$SCENE_NAME" "$REPO_ROOT"
 
 # ------------------------------------------------------------
@@ -94,7 +140,8 @@ echo ""
 echo "============================================================"
 echo "[pipeline] Stage 3: build H-SegSplat inputs (banks, index_maps, ...)"
 echo "============================================================"
-bash "$REPO_ROOT/pipeline/stage_03_build.sh" \
+run_stage stage3_build \
+    bash "$REPO_ROOT/pipeline/stage_03_build.sh" \
     "$SCENE_DIR" "$SCENE_NAME" "$REPO_ROOT"
 
 # ------------------------------------------------------------
@@ -104,7 +151,8 @@ echo ""
 echo "============================================================"
 echo "[pipeline] Stage 4: compute parent chain"
 echo "============================================================"
-bash "$REPO_ROOT/pipeline/stage_04_parents.sh" \
+run_stage stage4_parents \
+    bash "$REPO_ROOT/pipeline/stage_04_parents.sh" \
     "$SCENE_DIR" "$SCENE_NAME" "$REPO_ROOT"
 
 # ------------------------------------------------------------
@@ -119,11 +167,25 @@ if [[ ! -f "$DEPTHSPLAT_CHECKPOINT" ]]; then
     echo "[pipeline]        Place it there, or set DEPTHSPLAT_CHECKPOINT=<path>."
     exit 1
 fi
-bash "$REPO_ROOT/pipeline/stage_05_hsegsplat.sh" \
+run_stage stage5_hsegsplat \
+    bash "$REPO_ROOT/pipeline/stage_05_hsegsplat.sh" \
     "$SCENE_DIR" "$SCENE_NAME" "$DEPTHSPLAT_CHECKPOINT" "$REPO_ROOT"
+
+# Total row
+PIPELINE_END_NS=$(date +%s%N)
+PIPELINE_END_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TOTAL_DUR=$(awk -v s="$PIPELINE_START_NS" -v e="$PIPELINE_END_NS" 'BEGIN{printf "%.3f", (e - s) / 1e9}')
+TOTAL_ROW="${SCENE_NAME},total,${PIPELINE_START_ISO},${PIPELINE_END_ISO},${TOTAL_DUR},ok"
+echo "$TOTAL_ROW" >> "$SCENE_TIMINGS"
+echo "$TOTAL_ROW" >> "$AGG_TIMINGS"
 
 echo ""
 echo "============================================================"
 echo "[pipeline] All stages complete."
 echo "[pipeline] Final artifact: $SCENE_DIR/gaussians.pt"
+echo "[pipeline] Timings (this scene):"
+column -t -s, "$SCENE_TIMINGS" 2>/dev/null || cat "$SCENE_TIMINGS"
+echo ""
+echo "[pipeline] Aggregate timings across all scenes this session:"
+echo "[pipeline]   $AGG_TIMINGS"
 echo "============================================================"

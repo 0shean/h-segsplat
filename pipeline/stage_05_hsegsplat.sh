@@ -32,8 +32,8 @@ python "$REPO_ROOT/scripts/run_hsegsplat_inference.py" \
     +experiment=dl3dv \
     dataset.test_chunk_interval=1 \
     "dataset.roots=[$DATASET_ROOT]" \
-    "dataset.image_shape=[640,960]" \
-    "dataset.ori_image_shape=[640,960]" \
+    "dataset.image_shape=[${HSEGSPLAT_TARGET_H:-640},${HSEGSPLAT_TARGET_W:-960}]" \
+    "dataset.ori_image_shape=[${HSEGSPLAT_TARGET_H:-640},${HSEGSPLAT_TARGET_W:-960}]" \
     dataset.max_fov=130.0 \
     model.encoder.num_scales=2 \
     model.encoder.upsample_factor=4 \
