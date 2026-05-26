@@ -126,12 +126,16 @@ def process_scene_level(scene_dir: Path,
     level_root.mkdir(parents=True, exist_ok=True)
 
     images = iter_images(scene_dir)
-    for img_path in tqdm(images, desc=f"{scene_dir.name} lvl{level}", leave=False):
+    if not images:
+        print(f"  [sam lvl{level}] WARNING: no images found in {scene_dir}/dslr/resized_images")
+        return
+    print(f"  [sam lvl{level}] {len(images)} images to process")
+
+    for img_path in tqdm(images, desc=f"  {scene_dir.name} lvl{level}", leave=True):
         stem = img_path.stem
         out_dir = level_root / stem
         meta_path = out_dir / "metadata.json"
         if meta_path.exists():
-            # Already processed this frame at this level — skip.
             continue
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -156,6 +160,7 @@ def process_scene_level(scene_dir: Path,
             })
         with open(meta_path, "w") as f:
             json.dump(metadata, f, indent=2)
+        print(f"    [{stem}] {len(outputs)} masks")
 
 
 def main():

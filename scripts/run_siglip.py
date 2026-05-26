@@ -62,8 +62,12 @@ class MaskCropEncoder:
             torchvision.transforms.Resize((224, 224)),
             torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ])
-        # SigLIP feature dim; introspect off the visual tower.
-        self.D = self.model.visual.output_dim
+        # SigLIP feature dim — introspect via a forward pass on a dummy crop.
+        # open_clip's various model wrappers (TimmModel, custom VisionTransformer, ...)
+        # expose this in different ways; a forward pass is the portable check.
+        with torch.no_grad():
+            dummy = torch.zeros((1, 3, 224, 224), device=device)
+            self.D = int(self.model.encode_image(dummy).shape[-1])
 
     def _pad_square(self, img: torch.Tensor) -> torch.Tensor:
         _, h, w = img.shape
