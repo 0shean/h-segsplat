@@ -35,7 +35,7 @@ Open `colab/run_in_colab.ipynb` in Colab. The notebook walks through:
 ## Quickstart on a Linux box / ETH Euler
 
 ```bash
-git clone https://github.com/<you>/h-segsplat.git
+git clone https://github.com/0shean/h-segsplat.git
 cd h-segsplat
 
 # Build the three venvs (each ~5–15 min the first time).
