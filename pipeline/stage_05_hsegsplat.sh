@@ -4,6 +4,7 @@
 # Reproduces the long Hydra command that the original Colab notebook used.
 # All file-system paths point at the scene directory; outputs land there.
 set -euo pipefail
+unset MPLBACKEND
 
 SCENE_DIR="$1"
 SCENE_NAME="$2"

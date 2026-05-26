@@ -1,6 +1,7 @@
 #!/bin/bash
 # Stage 4: compute containment-based parent chain dict.
 set -euo pipefail
+unset MPLBACKEND
 
 SCENE_DIR="$1"
 SCENE_NAME="$2"

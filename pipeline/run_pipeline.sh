@@ -22,6 +22,11 @@
 
 set -euo pipefail
 
+# Colab exports MPLBACKEND=module://matplotlib_inline.backend_inline so notebook
+# matplotlib renders inline. That module isn't present in our venvs, which causes
+# matplotlib.__init__ to crash with ValueError. Unset it for the whole pipeline.
+unset MPLBACKEND
+
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 data/<scene>"
     exit 1

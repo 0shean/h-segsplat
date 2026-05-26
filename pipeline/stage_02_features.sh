@@ -1,6 +1,7 @@
 #!/bin/bash
 # Stage 2: per-mask SigLIP feature extraction.
 set -euo pipefail
+unset MPLBACKEND
 
 SCENE_DIR="$1"
 SCENE_NAME="$2"

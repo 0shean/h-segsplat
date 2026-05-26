@@ -1,6 +1,7 @@
 #!/bin/bash
 # Stage 3: build per-level banks, index maps, mask features tables, mask directories.
 set -euo pipefail
+unset MPLBACKEND
 
 SCENE_DIR="$1"
 SCENE_NAME="$2"

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Stage 1: SemanticSAM masks at three granularity levels.
 set -euo pipefail
+unset MPLBACKEND
 
 SCENE_DIR="$1"
 SCENE_NAME="$2"
