@@ -42,6 +42,11 @@ source "$VENV/bin/activate"
 
 pip install --upgrade pip wheel
 
+# Build-time prereqs the fresh venv lacks but Colab's base Python has by default.
+# diff-gaussian-rasterization-modified's setup.py uses setuptools + torch's
+# CUDA extension builder which calls ninja. Both must be in the venv.
+pip install "setuptools<70" ninja
+
 # DepthSplat's pinned torch + CUDA 12.4.
 pip install torch==2.4.0 torchvision==0.19.0 \
     --index-url https://download.pytorch.org/whl/cu124
@@ -62,7 +67,10 @@ if [[ -z "${CUDA_HOME:-}" ]]; then
     fi
     echo "[envs/hsegsplat] auto-set CUDA_HOME=$CUDA_HOME"
 fi
-pip install -r "$REPO_ROOT/depthsplat/requirements.txt"
+# --no-build-isolation: use the venv's torch+ninja for setup.py invocations
+# (the diff-gaussian-rasterization-modified source build needs them).
+# -v: surface the real error if one occurs, instead of "No available output".
+pip install --no-build-isolation -v -r "$REPO_ROOT/depthsplat/requirements.txt"
 
 # H-SegSplat's own deps on top of DepthSplat: gsplat (rasterizer) + imageio (PNG writing).
 pip install gsplat imageio
