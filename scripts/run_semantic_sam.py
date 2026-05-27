@@ -58,7 +58,53 @@ def parse_args():
     p.add_argument("--pred_iou_thresh", type=float, default=0.88)
     p.add_argument("--stability_score_thresh", type=float, default=0.92)
     p.add_argument("--min_mask_region_area", type=int, default=10)
+    p.add_argument("--nms_iou_thresh", type=float, default=0.5,
+                   help="Drop the lower-confidence mask of any pair with IoU >= this.")
+    p.add_argument("--nms_iom_thresh", type=float, default=0.85,
+                   help="Drop the lower-confidence mask of any pair with Intersection-over-Min "
+                        "(area of intersection / smaller mask's area) >= this. Catches the "
+                        "'mask A is mostly contained in mask B' case that pure IoU misses.")
     return p.parse_args()
+
+
+def nms_masks(outputs: list) -> list:
+    """SAM-style NMS on the raw mask-generator outputs.
+
+    Each entry in `outputs` is expected to be a dict with at least:
+      segmentation (HxW bool),  predicted_iou (float),  stability_score (float)
+
+    We sort by score = predicted_iou * stability_score (descending) and greedily
+    suppress later masks that have either IoU >= iou_thresh OR IoM >= iom_thresh
+    with any previously kept mask.
+
+    Returns the filtered list in the same order as the input (so PNG mask IDs
+    are still monotonic), with the suppressed masks removed.
+    """
+    iou_thresh = getattr(nms_masks, "_iou_thresh", 0.5)
+    iom_thresh = getattr(nms_masks, "_iom_thresh", 0.85)
+    if not outputs:
+        return outputs
+    scores = [float(o.get("predicted_iou", 1.0)) *
+              float(o.get("stability_score", 1.0)) for o in outputs]
+    masks_bool = [np.asarray(o["segmentation"], dtype=bool) for o in outputs]
+    areas = [int(m.sum()) for m in masks_bool]
+    order = sorted(range(len(outputs)), key=lambda i: -scores[i])
+    suppressed = [False] * len(outputs)
+    for i in order:
+        if suppressed[i]:
+            continue
+        for j in order:
+            if j == i or suppressed[j] or scores[j] > scores[i]:
+                continue
+            inter = int(np.logical_and(masks_bool[i], masks_bool[j]).sum())
+            if inter == 0:
+                continue
+            union = areas[i] + areas[j] - inter
+            iou = inter / max(union, 1)
+            iom = inter / max(min(areas[i], areas[j]), 1)
+            if iou >= iou_thresh or iom >= iom_thresh:
+                suppressed[j] = True
+    return [o for k, o in enumerate(outputs) if not suppressed[k]]
 
 
 def resolve_semantic_sam_dir(arg_value: str | None) -> Path:
@@ -144,7 +190,13 @@ def process_scene_level(scene_dir: Path,
         img_pil = Image.open(img_path).convert("RGB").resize(target_size, Image.BICUBIC)
         img_np = np.array(img_pil)
         img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).cuda()
-        outputs = gen.generate(img_tensor)
+        outputs_raw = gen.generate(img_tensor)
+        n_raw = len(outputs_raw)
+        outputs = nms_masks(outputs_raw)
+        n_kept = len(outputs)
+        if n_kept != n_raw:
+            print(f"    [{stem}] NMS lvl{level}: kept {n_kept}/{n_raw} masks "
+                  f"(dropped {n_raw - n_kept} overlapping)")
 
         metadata = []
         for i, ann in enumerate(outputs):
@@ -183,12 +235,18 @@ def main():
         min_mask_region_area=args.min_mask_region_area,
     )
 
+    # Stash NMS thresholds onto the helper so process_scene_level's call site
+    # doesn't need to thread them through.
+    nms_masks._iou_thresh = args.nms_iou_thresh
+    nms_masks._iom_thresh = args.nms_iom_thresh
+
     print(f"[sam] data_dir         = {data_dir}")
     print(f"[sam] semantic_sam_dir = {sam_dir}")
     print(f"[sam] checkpoint       = {checkpoint}")
     print(f"[sam] config           = {config}")
     print(f"[sam] target_size      = {target_size}")
     print(f"[sam] levels           = {args.levels}")
+    print(f"[sam] NMS              = IoU>={args.nms_iou_thresh} OR IoM>={args.nms_iom_thresh}")
 
     scenes = collect_scenes(data_dir, args.scene)
     if not scenes:

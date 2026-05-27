@@ -52,26 +52,30 @@ def parse_args():
 
 
 class MaskCropEncoder:
-    """Per-mask SigLIP encoding. Two strategies depending on the granularity level:
+    """Per-mask SigLIP encoding. Per-level strategy:
 
-    * **Level 1 (whole objects):** original two-crop average — (a) mask-only with
-      non-mask pixels zeroed at the tight bbox, (b) tight bbox with background kept.
-      Whole-object masks already include plenty of context, so no expansion is needed.
+    * **Level 1 (whole objects) and Level 3 (mid-grain):** SegSplat §3.1 recipe ---
+      single tight bbox around the mask, non-mask pixels zeroed out, no background
+      bleeding. The previous "two-crop average" recipe (mask-zeroed + bg-kept) was
+      shown to mislabel large background masks: SigLIP latched onto the salient
+      foreground objects visible in the bg-kept crop. SegSplat avoids this by relying
+      on NMS to keep masks reasonably separated AND by using only the mask-zeroed
+      crop.
 
-    * **Levels 3, 6 (sub-parts / fine parts):** Search3D-style §III-B single 10%
-      expanded bbox, background kept, no zeroing of non-mask pixels. The expansion
-      gives SigLIP enough surrounding context to disambiguate small parts (e.g. a
-      "leg" crop with some chair around it tells the encoder "chair leg", not
-      "rectangular brown thing").
+    * **Level 6 (fine parts):** Search3D §III-B single 10%-expanded bbox, background
+      kept, no zeroing. The expansion gives SigLIP enough surrounding context to
+      disambiguate small parts (e.g. a "leg" crop with some chair around it tells
+      the encoder "chair leg", not "rectangular brown thing").
 
-    The bbox expansion is **strictly a SigLIP-input artifact**. The mask PNGs on disk,
+    The bbox handling is **strictly a SigLIP-input artifact**. The mask PNGs on disk,
     the per-pixel mask_id_maps, the containment dict, and the per-Gaussian finest-mask
     references all use the original unchanged binary masks — only the *feature
     embedding* of each mask changes.
     """
 
-    # Per-level expansion ratio (Search3D §III-B "k_exp"). 0 = use original two-crop method.
-    DEFAULT_EXPANSION = {1: 0.0, 3: 0.1, 6: 0.1}
+    # Per-level expansion ratio (Search3D §III-B "k_exp"). 0 = mask-zeroed bbox crop
+    # (SegSplat style), >0 = expanded bbox with background kept (Search3D style).
+    DEFAULT_EXPANSION = {1: 0.0, 3: 0.0, 6: 0.1}
 
     def __init__(self, model_name: str, pretrained: str, device: str,
                  expansion: dict | None = None):
@@ -168,19 +172,18 @@ class MaskCropEncoder:
                 with torch.no_grad():
                     feat = self.model.encode_image(inp)[0]
             else:
-                # Original: two crops (mask-only + bbox-with-bg), averaged.
+                # SegSplat-style: tight bbox crop, non-mask pixels zeroed out, no bg
+                # averaging. The previous two-crop average (mask-zeroed + bg-kept)
+                # mislabeled large background masks: the bg-kept crop is dominated
+                # by salient foreground objects.
                 crop_mask = self._crop(mask, img_uint8, with_background=False)
                 if crop_mask is None:
                     out.append(torch.zeros(self.D))
                     continue
                 crop_mask = self._pad_square(crop_mask)
-                crop_bg = self._pad_square(self._crop(mask, img_uint8, with_background=True))
-                crops = torch.stack([
-                    self.preprocess_vlm(crop_mask.float() / 255.0),
-                    self.preprocess_vlm(crop_bg.float() / 255.0),
-                ]).to(self.device)
+                inp = self.preprocess_vlm(crop_mask.float() / 255.0).unsqueeze(0).to(self.device)
                 with torch.no_grad():
-                    feat = self.model.encode_image(crops).mean(dim=0)
+                    feat = self.model.encode_image(inp)[0]
 
             out.append(feat.cpu())
         return torch.stack(out).numpy()
