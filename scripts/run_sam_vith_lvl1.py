@@ -66,10 +66,24 @@ def parse_args():
                    default=int(os.environ.get("HSEGSPLAT_TARGET_W", "960")))
     p.add_argument("--target_h", type=int,
                    default=int(os.environ.get("HSEGSPLAT_TARGET_H", "640")))
-    p.add_argument("--points_per_side", type=int, default=32)
-    p.add_argument("--pred_iou_thresh", type=float, default=0.88)
-    p.add_argument("--stability_score_thresh", type=float, default=0.95)
-    p.add_argument("--min_mask_region_area", type=int, default=10)
+    # Defaults below are tuned for "whole object" granularity, matching SegSplat's
+    # §3.1 step 1 framing. SAM's stock defaults (32/0.88/0.95/10) produce a
+    # mask at every visible structure, including small parts — too fine for our
+    # lvl-1 purpose. Empirically the stock settings on the 3D-OVS sofa scene
+    # yielded ~38 masks (more than Semantic-SAM at lvl 6), one for each small
+    # detail (a single button on the Xbox controller, etc.). The values below
+    # bias toward a sparser prompt grid and drop very small masks outright.
+    p.add_argument("--points_per_side", type=int, default=16,
+                   help="SAM samples points_per_side^2 prompts uniformly. 16 -> "
+                        "256 prompts; 32 (SAM default) -> 1024. Lower = coarser.")
+    p.add_argument("--pred_iou_thresh", type=float, default=0.88,
+                   help="SAM's confidence filter (mask quality).")
+    p.add_argument("--stability_score_thresh", type=float, default=0.95,
+                   help="SAM's stability filter.")
+    p.add_argument("--min_mask_region_area", type=int, default=6000,
+                   help="Drop masks below this many pixels (default ~1%% of "
+                        "960x640 = 6144). Kills small-part masks like a single "
+                        "button. Set to 0 for SAM's default of 10.")
     p.add_argument("--nms_iou_thresh", type=float, default=0.5,
                    help="Same as run_semantic_sam.py: drop the lower-confidence "
                         "mask of any pair with IoU >= this.")
