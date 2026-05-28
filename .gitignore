@@ -12,6 +12,14 @@ dist/
 envs/*/venv/
 viewer/server/venv/
 
+# Source for diff-gaussian-rasterization-modified, cloned by envs/hsegsplat/setup.sh
+# to work around Euler's eth_proxy choking on `pip install git+...` with submodules.
+envs/hsegsplat/diff-gaussian-rasterization-modified/
+
+# Temp file emitted by envs/hsegsplat/setup.sh (requirements minus the git+ line).
+depthsplat/requirements.no-dgr.txt
+depthsplat/requirements.txt.bak
+
 # --- Data and outputs ---
 data/*
 !data/.gitkeep

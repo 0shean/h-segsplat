@@ -67,10 +67,36 @@ if [[ -z "${CUDA_HOME:-}" ]]; then
     fi
     echo "[envs/hsegsplat] auto-set CUDA_HOME=$CUDA_HOME"
 fi
+
+# Split-out diff-gaussian-rasterization-modified: pip's recursive submodule clone
+# through Euler's eth_proxy hangs (~30+ min). Instead, pre-clone the repo with
+# submodules to a local path and install from there. The clone uses HTTPS, which
+# the proxy handles fine for top-level repos but not for `git submodule update`.
+DGR_SRC="$REPO_ROOT/envs/hsegsplat/diff-gaussian-rasterization-modified"
+if [[ ! -d "$DGR_SRC/.git" ]]; then
+    echo "[envs/hsegsplat] cloning diff-gaussian-rasterization-modified + submodules"
+    rm -rf "$DGR_SRC"
+    git clone --recurse-submodules \
+        https://github.com/dcharatan/diff-gaussian-rasterization-modified \
+        "$DGR_SRC"
+else
+    echo "[envs/hsegsplat] diff-gaussian-rasterization-modified already cloned, updating submodules"
+    git -C "$DGR_SRC" submodule update --init --recursive
+fi
+
+# Strip the git+https line from requirements.txt for this run so pip doesn't
+# try to fetch it again.
+REQS_TMP="$REPO_ROOT/depthsplat/requirements.no-dgr.txt"
+grep -v 'diff-gaussian-rasterization-modified' \
+    "$REPO_ROOT/depthsplat/requirements.txt" > "$REQS_TMP"
+
 # --no-build-isolation: use the venv's torch+ninja for setup.py invocations
 # (the diff-gaussian-rasterization-modified source build needs them).
 # -v: surface the real error if one occurs, instead of "No available output".
-pip install --no-build-isolation -v -r "$REPO_ROOT/depthsplat/requirements.txt"
+pip install --no-build-isolation -v -r "$REQS_TMP"
+
+# Install the locally-cloned diff-gaussian-rasterization-modified.
+pip install --no-build-isolation -v "$DGR_SRC"
 
 # H-SegSplat's own deps on top of DepthSplat:
 #  - gsplat:      our rasterizer
