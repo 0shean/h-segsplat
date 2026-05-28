@@ -31,6 +31,16 @@ module load cuda/12.1.1
 module load gcc/12.2.0
 module load eth_proxy
 
+# Euler login + compute nodes default to C/POSIX locale (ASCII). torch's
+# JIT cpp_extension versioner calls open(...).read() with the system
+# encoding when hashing CUDA source files; if any file (e.g. gsplat's
+# csrc/*.cu / *.h) contains a non-ASCII byte in a comment, it crashes
+# with UnicodeDecodeError. Force a UTF-8 locale before anything imports
+# torch.
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export PYTHONIOENCODING=utf-8
+
 REPO_ROOT="/cluster/project/cvg/students/sergejsz/h-segsplat"
 cd "$REPO_ROOT"
 mkdir -p logs

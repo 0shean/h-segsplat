@@ -68,10 +68,23 @@ if [[ -n "$NV_LIB_DIRS" ]]; then
 # libs take precedence over any older system CUDA module's libnvJitLink.so.
 NV_LIB_DIRS="$NV_LIB_DIRS"
 export LD_LIBRARY_PATH="\${NV_LIB_DIRS}:\${LD_LIBRARY_PATH:-}"
+
+# Also force a UTF-8 locale: Euler's default is C/POSIX (ASCII), and
+# torch's JIT cpp_extension hashes CUDA source files using sys default
+# encoding — non-ASCII bytes in a gsplat .cu/.h comment crash with
+# UnicodeDecodeError otherwise.
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export PYTHONIOENCODING=utf-8
 EOF
     echo "[envs/hsegsplat] prepended bundled cu124 libs to LD_LIBRARY_PATH:"
     echo "                $NV_LIB_DIRS"
 fi
+
+# Same locale fix at setup time so the verification step below doesn't trip on it.
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export PYTHONIOENCODING=utf-8
 
 # Smoke-test that torch imports BEFORE running anything else that imports it.
 python -c "import torch; print(f'[envs/hsegsplat] torch import OK ({torch.__version__})')" || {
