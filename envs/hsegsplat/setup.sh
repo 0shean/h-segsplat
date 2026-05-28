@@ -51,6 +51,35 @@ pip install "setuptools<70" ninja
 pip install torch==2.4.0 torchvision==0.19.0 \
     --index-url https://download.pytorch.org/whl/cu124
 
+# IMPORTANT: torch 2.4.0+cu124 ships its own nvidia-cusparse-cu12==12.3.0.142
+# and nvidia-nvjitlink-cu12==12.4.99 inside the venv. On Euler, `module load
+# cuda/12.1.1` also exports an older libnvJitLink.so.12 via LD_LIBRARY_PATH,
+# which gets picked up first and is missing `__nvJitLinkComplete_12_4` —
+# `import torch` then crashes. Fix: prepend the venv's bundled nvidia/*/lib
+# dirs to LD_LIBRARY_PATH so the matching cu124 .so files win. We also persist
+# this as an activate-time hook so stage 5 inherits the fix.
+NV_LIB_DIRS=$(find "$VENV/lib/python3.10/site-packages/nvidia" \
+    -maxdepth 2 -name lib -type d 2>/dev/null | paste -sd: -)
+if [[ -n "$NV_LIB_DIRS" ]]; then
+    export LD_LIBRARY_PATH="${NV_LIB_DIRS}:${LD_LIBRARY_PATH:-}"
+    cat >> "$VENV/bin/activate" <<EOF
+
+# Added by envs/hsegsplat/setup.sh: ensure torch 2.4.0+cu124's bundled CUDA
+# libs take precedence over any older system CUDA module's libnvJitLink.so.
+NV_LIB_DIRS="$NV_LIB_DIRS"
+export LD_LIBRARY_PATH="\${NV_LIB_DIRS}:\${LD_LIBRARY_PATH:-}"
+EOF
+    echo "[envs/hsegsplat] prepended bundled cu124 libs to LD_LIBRARY_PATH:"
+    echo "                $NV_LIB_DIRS"
+fi
+
+# Smoke-test that torch imports BEFORE running anything else that imports it.
+python -c "import torch; print(f'[envs/hsegsplat] torch import OK ({torch.__version__})')" || {
+    echo "[envs/hsegsplat] ERROR: torch import broken after wheel install."
+    echo "                LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+    exit 1
+}
+
 # Apply the numpy patch that the Colab cell did (loosen the exact pin).
 sed -i.bak 's/numpy==1.24.4/numpy>=1.24.4,<2.0/' "$REPO_ROOT/depthsplat/requirements.txt" || true
 

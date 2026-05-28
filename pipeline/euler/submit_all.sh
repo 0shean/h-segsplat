@@ -26,16 +26,16 @@ SCENES=(
     3dovs_snacks
     3dovs_sofa
     3dovs_table
-    multiscan_scene_00005_00
-    multiscan_scene_00006_00
-    multiscan_scene_00018_00
-    multiscan_scene_00019_00
-    multiscan_scene_00022_00
-    multiscan_scene_00030_00
-    multiscan_scene_00044_00
-    multiscan_scene_00048_00
-    multiscan_scene_00051_00
-    multiscan_scene_00055_00
+    scene_00005_00
+    scene_00006_00
+    scene_00018_00
+    scene_00019_00
+    scene_00022_00
+    scene_00030_00
+    scene_00044_00
+    scene_00048_00
+    scene_00051_00
+    scene_00055_00
 )
 
 DEPS=""
