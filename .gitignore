@@ -59,3 +59,6 @@ logs/
 
 # --- Colab cache that may sneak in if you run locally ---
 .ipynb_checkpoints/
+
+# --- Report drafting (kept local, not pushed) ---
+report/
