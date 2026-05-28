@@ -45,6 +45,13 @@ SCENE_NAME="$(basename "$SCENE_DIR")"
 # Where to find the SAM checkpoint. Defaults to repo_root; can be overridden by env var.
 SAM_CHECKPOINT="${SAM_CHECKPOINT:-$REPO_ROOT/swinl_only_sam_many2many.pth}"
 
+# Optional: use Meta's original SAM ViT-H for level-1 masks instead of
+# Semantic-SAM (matches SegSplat's protocol). When $USE_SAM_VITH_LVL1 is set
+# to any non-empty value, stage 1a runs SAM ViT-H -> masks_lvl_1/, and stage 1
+# runs Semantic-SAM restricted to lvl 3 + 6.
+USE_SAM_VITH_LVL1="${USE_SAM_VITH_LVL1:-}"
+SAM_VITH_CHECKPOINT="${SAM_VITH_CHECKPOINT:-$REPO_ROOT/sam_vit_h_4b8939.pth}"
+
 # Where to find the DepthSplat checkpoint.
 DEPTHSPLAT_CHECKPOINT="${DEPTHSPLAT_CHECKPOINT:-$REPO_ROOT/depthsplat/pretrained/depthsplat-gs-base-re10kdl3dv-448x768-randview2-6-f8ddd845.pth}"
 
@@ -106,11 +113,37 @@ PIPELINE_START_NS=$(date +%s%N)
 PIPELINE_START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ------------------------------------------------------------
-# Stage 1: SAM
+# Stage 1a: (optional) SAM ViT-H for level-1 masks
+# ------------------------------------------------------------
+if [[ -n "$USE_SAM_VITH_LVL1" ]]; then
+    echo ""
+    echo "============================================================"
+    echo "[pipeline] Stage 1a: SAM ViT-H (lvl 1 masks)"
+    echo "============================================================"
+    if [[ ! -f "$SAM_VITH_CHECKPOINT" ]]; then
+        echo "[pipeline] ERROR: SAM ViT-H checkpoint not found at $SAM_VITH_CHECKPOINT"
+        echo "[pipeline]        Download sam_vit_h_4b8939.pth from"
+        echo "[pipeline]        https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth"
+        echo "[pipeline]        or set SAM_VITH_CHECKPOINT=<path>."
+        exit 1
+    fi
+    run_stage stage1a_sam_vith \
+        bash "$REPO_ROOT/pipeline/stage_01a_sam_vith.sh" \
+        "$SCENE_DIR" "$SCENE_NAME" "$SAM_VITH_CHECKPOINT" "$REPO_ROOT"
+    # Tell stage_01_masks.sh to only do lvl 3 + 6 (lvl 1 was just produced).
+    export HSEGSPLAT_SEMSAM_LEVELS="3 6"
+fi
+
+# ------------------------------------------------------------
+# Stage 1: Semantic-SAM masks at the remaining levels
 # ------------------------------------------------------------
 echo ""
 echo "============================================================"
-echo "[pipeline] Stage 1: SemanticSAM"
+if [[ -n "$USE_SAM_VITH_LVL1" ]]; then
+    echo "[pipeline] Stage 1: SemanticSAM (lvl 3 + 6 only; lvl 1 from SAM ViT-H)"
+else
+    echo "[pipeline] Stage 1: SemanticSAM (lvl 1 + 3 + 6)"
+fi
 echo "============================================================"
 if [[ ! -f "$SAM_CHECKPOINT" ]]; then
     echo "[pipeline] ERROR: SAM checkpoint not found at $SAM_CHECKPOINT"

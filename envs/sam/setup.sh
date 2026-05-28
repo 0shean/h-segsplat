@@ -89,6 +89,14 @@ cd "$REPO_ROOT/Semantic-SAM/semantic_sam/body/encoder/ops"
 # Lightweight runtime deps used by our scripts.
 pip install opencv-python tqdm pillow
 
+# Meta's original SAM (NOT SAM 2). Co-installed in this same venv because
+# scripts/run_sam_vith_lvl1.py drops in as a replacement for Semantic-SAM at
+# granularity 1 (matching SegSplat's protocol). The two models coexist:
+# segment_anything has no torch version pin beyond >=1.7, so our torch 2.1.2
+# is fine. The vit-h checkpoint must be downloaded separately and pointed at
+# via $SAM_VITH_CHECKPOINT (or the default $REPO_ROOT/sam_vit_h_4b8939.pth).
+pip install 'git+https://github.com/facebookresearch/segment-anything.git'
+
 # Sentinel file written only on success — the notebook checks for this to decide
 # whether to skip a re-run. Without it, a half-finished venv directory looks
 # "done" when it isn't.

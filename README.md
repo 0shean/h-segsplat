@@ -77,6 +77,32 @@ sbatch --gpus=rtx_3090:1 --time=12:00:00 --mem-per-cpu=8G --cpus-per-task=4 \
 
 Each stage is **idempotent** — re-running skips work that's already done.
 
+### Optional: SAM ViT-H at level 1 (matches SegSplat's protocol)
+
+Semantic-SAM at granularity 1 sometimes produces overlapping "object + nearby
+context" masks (e.g. a Pikachu plush plus a slab of surrounding sofa). When
+those masks are SigLIP-encoded the salient object dominates the feature, and
+the surrounding sofa pixels get the Pikachu cluster index → spillover at
+render time. SegSplat (§3.1 step 1) avoids this by using Meta's original SAM
+ViT-H with NMS at "whole object" prompting.
+
+To enable that protocol set two env vars before invoking the pipeline:
+
+```bash
+export USE_SAM_VITH_LVL1=1
+export SAM_VITH_CHECKPOINT=/path/to/sam_vit_h_4b8939.pth  # download from
+   # https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
+
+bash pipeline/run_pipeline.sh data/<scene>
+```
+
+When set, the orchestrator runs `stage_01a_sam_vith.sh` (SAM ViT-H → lvl-1
+masks) before `stage_01_masks.sh`, and Semantic-SAM runs only at levels 3
+and 6. The downstream stages and the gaussians.pt schema are unchanged.
+
+The `segment_anything` Python package is installed alongside Semantic-SAM
+in `envs/sam/venv` — no extra venv needed.
+
 ---
 
 ## Project layout
