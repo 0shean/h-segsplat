@@ -37,7 +37,7 @@ import cv2
 import torch
 
 REPO_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_DIR / "scripts_multiscan" / "eval"))
+sys.path.insert(0, str(REPO_DIR / "multiscan" / "eval"))
 from hsegsplat_offline_state import SigLIPTextEncoder  # noqa: E402
 
 
