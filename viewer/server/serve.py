@@ -14,6 +14,8 @@ Run:
     python serve.py /path/to/gaussians.pt
 """
 
+from __future__ import annotations
+
 import argparse
 import io
 from pathlib import Path

@@ -76,6 +76,13 @@ def parse_args():
                         "('--target_view bed:00 lawn:09 sofa:23'). Omit to use all "
                         "labelled views in target_views.json (default; matches "
                         "SegSplat / 3D-OVS protocol).")
+    p.add_argument("--exclude_classes", nargs="+", default=None,
+                   help="Drop classes whose names contain any of these (case-insensitive) "
+                        "substrings from the per-scene mIoU average. Per-class IoU is still "
+                        "computed and stored; just excluded from the mean. Useful for the "
+                        "background-ish 3D-OVS classes (sheet, lawn, sofa, desktop, wall, "
+                        "partition, ...) whose predicted region is dominated by foreground "
+                        "objects on top of them.")
     return p.parse_args()
 
 
@@ -287,11 +294,21 @@ def main():
         scene_class_iou = {c: float(np.nanmean(per_class_per_v_iou[c]))
                            if per_class_per_v_iou[c] else float("nan")
                            for c in classes}
-        # Scene mIoU = mean over classes (NaN-safe).
-        valid_ious = [v for v in scene_class_iou.values() if not np.isnan(v)]
+        # Optionally drop user-specified classes from the mean (typically
+        # background-y ones whose appearance is dominated by foreground).
+        excluded_for_scene = []
+        if args.exclude_classes:
+            patterns = [p.lower() for p in args.exclude_classes]
+            excluded_for_scene = [c for c in classes
+                                  if any(p in c.lower() for p in patterns)]
+        eligible = [c for c in classes if c not in excluded_for_scene]
+        valid_ious = [scene_class_iou[c] for c in eligible
+                      if not np.isnan(scene_class_iou[c])]
         scene_miou = float(np.mean(valid_ious)) if valid_ious else float("nan")
         print(f"  -> per-class IoU: {scene_class_iou}")
-        print(f"  -> scene mIoU = {scene_miou:.4f}")
+        if excluded_for_scene:
+            print(f"  -> excluded from mIoU: {excluded_for_scene}")
+        print(f"  -> scene mIoU = {scene_miou:.4f}  (over {len(valid_ious)} classes)")
         if args.mode == "oracle":
             total_wins = sum(oracle_level_wins.values()) or 1
             for lvl in args.levels:
