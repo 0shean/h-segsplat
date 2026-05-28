@@ -69,7 +69,34 @@ def parse_args():
                         "minmax: rescale to [0, 1] per image.")
     p.add_argument("--device", type=str, default="cpu")
     p.add_argument("--out_dir", type=Path, default=Path("data/3D-OVS/eval_results"))
+    p.add_argument("--target_view", nargs="+", default=None,
+                   help="Restrict eval to the given target view IDs. Pass either a "
+                        "single view ID applied to all scenes ('--target_view 09') "
+                        "or per-scene 'scene:view' pairs "
+                        "('--target_view bed:00 lawn:09 sofa:23'). Omit to use all "
+                        "labelled views in target_views.json (default; matches "
+                        "SegSplat / 3D-OVS protocol).")
     return p.parse_args()
+
+
+def parse_target_view_arg(arg, scenes):
+    """Returns dict {scene -> set(view_id) or None}. None means 'use all views'."""
+    if not arg:
+        return {s: None for s in scenes}
+    pairs = [a for a in arg if ":" in a]
+    if pairs:
+        out = {s: None for s in scenes}
+        for p in arg:
+            if ":" not in p:
+                raise ValueError(
+                    f"--target_view: mix of bare and scene:view forms not supported ({p})")
+            scene, view = p.split(":", 1)
+            if out.get(scene) is None:
+                out[scene] = set()
+            out[scene].add(view)
+        return out
+    s = set(arg)
+    return {sc: s for sc in scenes}
 
 
 def compute_iou(pred_bool: np.ndarray, gt_bool: np.ndarray) -> float:
@@ -85,6 +112,8 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
     print("[3dovs] loading SigLIP ...")
     encoder = SigLIPTextEncoder(device=args.device)
+
+    view_filter = parse_target_view_arg(args.target_view, args.scenes)
 
     overall = {}  # scene -> mIoU
     per_class_results = {}  # scene -> {class: iou}
@@ -104,6 +133,21 @@ def main():
             tv = json.load(f)
         classes = tv["classes"]
         targets = tv["targets"]
+
+        # Filter to the requested target view(s) for this scene, if any.
+        # The .npy feature maps were written in target order from target_views.json,
+        # so we need to remember each kept target's ORIGINAL index for indexing.
+        target_iter = list(enumerate(targets))  # [(orig_idx, tgt)] over original order
+        wanted = view_filter.get(scene)
+        if wanted is not None:
+            target_iter = [(i, t) for (i, t) in target_iter if t["view_id"] in wanted]
+            if not target_iter:
+                avail = [t["view_id"] for t in targets]
+                print(f"  [skip] none of requested views {sorted(wanted)} "
+                      f"are present. Available: {avail}")
+                continue
+            print(f"  restricting to {len(target_iter)}/{len(targets)} target view(s): "
+                  f"{[t['view_id'] for _, t in target_iter]}")
 
         # Load per-level banks (drop bg row, L2-normalize).
         g = torch.load(g_pt, map_location="cpu", weights_only=False)
@@ -127,7 +171,7 @@ def main():
         # when no other level does). Only filled when mode == "oracle".
         oracle_level_wins = {lvl: 0 for lvl in args.levels}
         oracle_level_unique_wins = {lvl: 0 for lvl in args.levels}
-        for t_idx, tgt in enumerate(targets):
+        for t_idx, tgt in target_iter:
             # Per-level per-class relevancy tensor, kept so oracle mode can
             # OR them at threshold time. For per_class_threshold and argmax we
             # max-reduce immediately into `combined_rels` to save memory.
