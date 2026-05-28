@@ -52,12 +52,14 @@ def parse_args():
     p.add_argument("--mass_threshold", type=float, default=0.05,
                    help="Drop pixels whose foreground-channel mass is below this "
                         "(low-confidence background). Only used in 'argmax' mode.")
-    p.add_argument("--mode", choices=["per_class_threshold", "argmax"],
+    p.add_argument("--mode", choices=["per_class_threshold", "argmax", "oracle"],
                    default="per_class_threshold",
                    help="per_class_threshold (DEFAULT, matches SegSplat/LangSplat/N2F2): "
                         "for each class, compute LERF relevancy, threshold at --threshold, "
                         "compare to GT. Classes may overlap or be absent. "
-                        "argmax: assign each valid pixel the highest-relevancy class.")
+                        "argmax: assign each valid pixel the highest-relevancy class. "
+                        "oracle: per pixel per class predict positive if ANY level "
+                        "fires above --threshold (upper bound for the per-level-max design).")
     p.add_argument("--tau", type=float, default=100.0,
                    help="LERF temperature. Higher = more saturated (binary). "
                         "100 = LERF default, 10 = LangSplat default.")
@@ -120,9 +122,16 @@ def main():
         class_embs = {cls: encoder(cls) for cls in classes}
 
         per_class_per_v_iou = {c: [] for c in classes}
+        # Per-level oracle bookkeeping: how often each level provides the "winning"
+        # positive prediction (i.e. fires above threshold for a GT-positive pixel
+        # when no other level does). Only filled when mode == "oracle".
+        oracle_level_wins = {lvl: 0 for lvl in args.levels}
+        oracle_level_unique_wins = {lvl: 0 for lvl in args.levels}
         for t_idx, tgt in enumerate(targets):
-            # Combined relevancy: take per-pixel MAX across levels of each class score.
-            # This recovers the class signal from whichever level happens to cluster it.
+            # Per-level per-class relevancy tensor, kept so oracle mode can
+            # OR them at threshold time. For per_class_threshold and argmax we
+            # max-reduce immediately into `combined_rels` to save memory.
+            per_lvl_rels = {}            # lvl -> (C, H, W) relevancies in [0,1]
             combined_rels = None         # (C, H, W) running max across levels
             fg_mass_any = None           # (H, W) max foreground mass across levels
             for lvl in args.levels:
@@ -146,6 +155,7 @@ def main():
                     pair = 1.0 / (1.0 + np.exp(-diff))
                     class_rels.append(pair.min(axis=1))
                 class_rels = np.stack(class_rels, axis=0).reshape(-1, H, W)
+                per_lvl_rels[lvl] = class_rels
                 if combined_rels is None:
                     combined_rels = class_rels
                 else:
@@ -174,7 +184,7 @@ def main():
                     iou = compute_iou(pred_bool, gt_bool)
                     ious[cls] = iou
                     per_class_per_v_iou[cls].append(iou)
-            else:
+            elif args.mode == "argmax":
                 # argmax: assign each valid pixel the single highest-relevancy class.
                 valid = fg_mass_any >= args.mass_threshold
                 # Weight by fg_mass to suppress empty regions.
@@ -191,6 +201,40 @@ def main():
                     iou = compute_iou(pred_bool, gt_bool)
                     ious[cls] = iou
                     per_class_per_v_iou[cls].append(iou)
+            else:  # oracle
+                # Per pixel per class: predict positive if ANY level fires above
+                # --threshold. This is an upper bound — it says: "if we had a
+                # perfect per-level selector, how good could the per-pixel-max
+                # combiner be?"
+                # We also count, per level, how often it provides the only
+                # positive vote at a GT-positive pixel ("unique win"). That
+                # diagnostic shows whether dropping a level would lose information.
+                for c_i, cls in enumerate(classes):
+                    gt_path = gt_root / tgt["view_id"] / f"{cls}.png"
+                    if not gt_path.exists():
+                        continue
+                    gt_m = cv2.imread(str(gt_path), cv2.IMREAD_GRAYSCALE)
+                    gt_bool = gt_m > 0
+                    # OR over per-level binary predictions.
+                    per_lvl_bin = {lvl: per_lvl_rels[lvl][c_i] >= args.threshold
+                                   for lvl in args.levels}
+                    pred_bool = np.zeros((H, W), dtype=bool)
+                    for lvl in args.levels:
+                        pred_bool |= per_lvl_bin[lvl]
+                    iou = compute_iou(pred_bool, gt_bool)
+                    ious[cls] = iou
+                    per_class_per_v_iou[cls].append(iou)
+                    # Bookkeeping: per-level utilization at GT-positive pixels.
+                    for lvl in args.levels:
+                        wins = int((per_lvl_bin[lvl] & gt_bool).sum())
+                        # "unique" = this level fires but the others don't.
+                        others = np.zeros((H, W), dtype=bool)
+                        for olvl in args.levels:
+                            if olvl != lvl:
+                                others |= per_lvl_bin[olvl]
+                        unique = int((per_lvl_bin[lvl] & gt_bool & ~others).sum())
+                        oracle_level_wins[lvl] += wins
+                        oracle_level_unique_wins[lvl] += unique
             print(f"  view {tgt['view_id']}: " +
                   ", ".join(f"{c}={v:.3f}" if not np.isnan(v) else f"{c}=nan"
                             for c, v in ious.items()))
@@ -204,6 +248,13 @@ def main():
         scene_miou = float(np.mean(valid_ious)) if valid_ious else float("nan")
         print(f"  -> per-class IoU: {scene_class_iou}")
         print(f"  -> scene mIoU = {scene_miou:.4f}")
+        if args.mode == "oracle":
+            total_wins = sum(oracle_level_wins.values()) or 1
+            for lvl in args.levels:
+                pct = 100.0 * oracle_level_wins[lvl] / total_wins
+                upct = 100.0 * oracle_level_unique_wins[lvl] / max(1, oracle_level_wins[lvl])
+                print(f"  -> lvl{lvl}: fires at {oracle_level_wins[lvl]} GT-pos pixels "
+                      f"({pct:.1f}% of total), {upct:.1f}% of which are unique to this level")
         overall[scene] = scene_miou
         per_class_results[scene] = scene_class_iou
 
